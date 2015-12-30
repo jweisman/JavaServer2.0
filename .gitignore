@@ -2,3 +2,7 @@
 sword2-server.iml
 target/
 
+# Eclipse
+.settings/
+.project
+.classpath

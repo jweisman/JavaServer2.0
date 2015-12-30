@@ -6,12 +6,11 @@ import org.apache.abdera.model.Element;
 import org.apache.abdera.model.Entry;
 import org.apache.abdera.parser.Parser;
 import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.fileupload.FileItemFactory;
-import org.apache.commons.fileupload.FileUploadException;
+import org.apache.commons.codec.binary.Base64InputStream;
 import org.apache.commons.fileupload.ParameterParser;
-import org.apache.commons.fileupload.disk.DiskFileItem;
-import org.apache.commons.fileupload.disk.DiskFileItemFactory;
-import org.apache.commons.fileupload.servlet.ServletFileUpload;
+import javax.mail.BodyPart;
+import javax.mail.MessagingException;
+import javax.mail.internet.MimeMultipart;
 import org.apache.log4j.Logger;
 
 import javax.servlet.ServletException;
@@ -250,51 +249,58 @@ public class SwordAPIEndpoint
 		}
 	}
 
-	protected void addDepositPropertiesFromMultipart(Deposit deposit, HttpServletRequest req)
-			throws ServletException, IOException, SwordError
-	{
-		// Parse the request for files (using the fileupload commons library)
-		List<DiskFileItem> items = this.getPartsFromRequest(req);
-		for (DiskFileItem item : items)
-		{
-			// find out which part we are looking at
-			String contentDisposition = item.getHeaders().getHeader("Content-Disposition");
-			String name = this.getContentDispositionValue(contentDisposition, "name");
+    protected void addDepositPropertiesFromMultipart(Deposit deposit,
+            HttpServletRequest req) throws ServletException, IOException,
+            SwordError {
 
-			if ("atom".equals(name))
-			{
-				InputStream entryPart = item.getInputStream();
-				Abdera abdera = new Abdera();
-				Parser parser = abdera.getParser();
-				Document<Entry> entryDoc = parser.parse(entryPart);
-				Entry entry = entryDoc.getRoot();
-				deposit.setEntry(entry);
-			}
-			else if ("payload".equals(name))
-			{
-				String md5 = item.getHeaders().getHeader("Content-MD5");
-				String packaging = item.getHeaders().getHeader("Packaging");
-				String filename = this.getContentDispositionValue(contentDisposition, "filename");
-				if (filename == null || "".equals(filename))
-				{
-					throw new SwordError(UriRegistry.ERROR_BAD_REQUEST, "Filename could not be extracted from Content-Disposition");
-				}
-				String ct = item.getContentType();
-				String mimeType = "application/octet-stream";
-				if (ct != null)
-				{
-					String[] bits = ct.split(";");
-					mimeType = bits[0].trim();
-				}
-				InputStream mediaPart = item.getInputStream();
+        try {
+            MimeMultipart mp =
+            		new MimeMultipart(new RequestDataSource(req));
 
-				deposit.setFilename(filename);
-				deposit.setInputStream(mediaPart);
-				deposit.setMimeType(mimeType);
-				deposit.setMd5(md5);
-				deposit.setPackaging(packaging);
-			}
-		}
+            BodyPart bp;
+            for (int i = 0; i < mp.getCount(); i++) {
+                bp = mp.getBodyPart(i);
+                String disposition = getHeader(bp, "Content-Disposition");
+                String name = this.getContentDispositionValue(disposition, "name");
+
+                if ("atom".equals(name)) {
+                    InputStream entryPart = bp.getInputStream();
+                    Abdera abdera = new Abdera();
+                    Parser parser = abdera.getParser();
+                    Document<Entry> entryDoc = parser.parse(entryPart);
+                    Entry entry = entryDoc.getRoot();
+                    deposit.setEntry(entry);
+                } else if ("payload".equals(name)) {
+                    String md5 = getHeader(bp, "Content-MD5");
+                    String packaging = getHeader(bp, "Packaging");
+                    String filename = this.getContentDispositionValue(disposition, "filename");
+                    if (filename == null || "".equals(filename)) {
+                        throw new SwordError(UriRegistry.ERROR_BAD_REQUEST,
+                                "Filename could not be extracted from Content-Disposition");
+                    }
+                    String ct = bp.getContentType();
+                    String mimeType = "application/octet-stream";
+                    if (ct != null) {
+                        String[] bits = ct.split(";");
+                        mimeType = bits[0].trim();
+                    }
+                    InputStream mediaPart;
+                    if (mimeType.startsWith("application/")) // base64 encoded data in the multi-part request
+                    {
+                    	mediaPart = new Base64InputStream(bp.getInputStream());
+                    } else {
+                    	mediaPart = bp.getInputStream();
+                    }
+                    deposit.setFilename(filename);
+                    deposit.setInputStream(mediaPart);
+                    deposit.setMimeType(mimeType);
+                    deposit.setMd5(md5);
+                    deposit.setPackaging(packaging);
+                }
+            }
+        } catch (MessagingException e) {
+            throw new SwordError(e.getMessage(), e);
+        }
 
 		try
 		{
@@ -453,28 +459,6 @@ public class SwordAPIEndpoint
 		return parameters.get(key);
 	}
 
-	protected List<DiskFileItem> getPartsFromRequest(HttpServletRequest request)
-			throws ServletException
-	{
-		try
-		{
-			// Create a factory for disk-based file items
-			FileItemFactory factory = new DiskFileItemFactory();
-
-			// Create a new file upload handler
-			ServletFileUpload upload = new ServletFileUpload(factory);
-
-			// Parse the request
-			List<DiskFileItem> items = upload.parseRequest(request);
-
-			return items;
-		}
-		catch (FileUploadException e)
-		{
-			throw new ServletException(e);
-		}
-	}
-
 	protected Map<String, String> getAcceptHeaders(HttpServletRequest req)
 	{
 		Map<String, String> acceptHeaders = new HashMap<String, String>();
@@ -547,10 +531,24 @@ public class SwordAPIEndpoint
 			// first of all validate that the value is "true" or "false"
 			if (!"true".equals(mdr.trim()) && !"false".equals(mdr.trim()))
 			{
-				throw new SwordError(UriRegistry.ERROR_BAD_REQUEST, "The In-Progress header MUST be 'true' or 'false'");
+				throw new SwordError(UriRegistry.ERROR_BAD_REQUEST, "The Metadata-Relevant header MUST be 'true' or 'false'");
 			}
 			metadataRelevant = "true".equals(mdr.trim());
 		}
 		return metadataRelevant;
 	}
+
+    private String getHeader(BodyPart bp, String name) throws SwordError {
+        String[] headers;
+        try {
+            headers = bp.getHeader(name);
+        } catch (MessagingException e) {
+            throw new SwordError(e.getMessage(), e);
+        }
+        if (headers == null) {
+            return null;
+        } else {
+            return headers[0];
+        }
+    }
 }
