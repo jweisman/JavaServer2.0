@@ -284,13 +284,9 @@ public class SwordAPIEndpoint
                         String[] bits = ct.split(";");
                         mimeType = bits[0].trim();
                     }
-                    InputStream mediaPart;
-                    if (mimeType.startsWith("application/")) // base64 encoded data in the multi-part request
-                    {
-                    	mediaPart = new Base64InputStream(bp.getInputStream());
-                    } else {
-                    	mediaPart = bp.getInputStream();
-                    }
+
+                    InputStream mediaPart = bp.getInputStream();
+
                     deposit.setFilename(filename);
                     deposit.setInputStream(mediaPart);
                     deposit.setMimeType(mimeType);
