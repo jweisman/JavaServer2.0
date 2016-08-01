@@ -32,6 +32,7 @@ public class DepositReceipt
     private Map<String, String> derivedResources = new HashMap<String, String>();
 	private boolean empty = false;
     private Date lastModified = null;
+    private String id = null;
 
     public DepositReceipt()
     {
@@ -49,7 +50,11 @@ public class DepositReceipt
         Entry abderaEntry = (Entry) this.entry.clone();
 
 		// use the edit iri as the id
-		abderaEntry.setId(this.editIRI.toString());
+        if (this.id != null) {
+        	abderaEntry.setId(this.id);
+        } else {
+    		abderaEntry.setId(this.editIRI.toString());
+        }
 
         // add the Edit IRI Link
         if (this.editIRI != null)
@@ -123,6 +128,14 @@ public class DepositReceipt
         }
 
         return abderaEntry;
+    }
+    
+    public String getId() {
+    	return id;
+    }
+    
+    public void setId(String id) {
+    	this.id = id;
     }
 
     public Date getLastModified()
